@@ -25,7 +25,6 @@ public class BellService extends Service {
     public static final String ACTION_REFRESH_TEXT = "com.homik.bell.REFRESH_TEXT";
     private static final String CHANNEL = "school_schedule";
     private static final int NOTIFICATION_ID = 42;
-    private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm");
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable updater = new Runnable() {
         @Override public void run() {
@@ -34,7 +33,7 @@ public class BellService extends Service {
                 return;
             }
             NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) manager.notify(NOTIFICATION_ID, makeNotification(AppStrings.t(BellService.this, "Расписание звонков"), statusText()));
+            if (manager != null) manager.notify(NOTIFICATION_ID, makeNotification(notificationTitle(), statusText()));
             BellWidgetProvider.refresh(BellService.this);
             handler.postDelayed(this, 15_000);
         }
@@ -52,7 +51,7 @@ public class BellService extends Service {
         createChannel();
         chooseCustomText();
         handler.removeCallbacks(updater);
-        startForeground(NOTIFICATION_ID, makeNotification(AppStrings.t(this, "Расписание звонков"), statusText()));
+        startForeground(NOTIFICATION_ID, makeNotification(notificationTitle(), statusText()));
         BellWidgetProvider.refresh(this);
         handler.postDelayed(updater, 15_000);
         return START_STICKY;
@@ -61,7 +60,7 @@ public class BellService extends Service {
     private String statusText() {
         LocalDateTime now = LocalDateTime.now();
         List<Schedule.Slot> slots = Schedule.forDay(now.getDayOfWeek(), this);
-        if (slots.isEmpty()) return appendCustomText(AppStrings.t(this, "Сегодня занятий по расписанию нет") + "\n" + vacationText(now));
+        if (slots.isEmpty()) return AppStrings.t(this, "Сегодня занятий по расписанию нет") + "\n" + vacationText(now);
         LocalTime time = now.toLocalTime();
         for (int i = 0; i < slots.size(); i++) {
             Schedule.Slot s = slots.get(i);
@@ -70,17 +69,22 @@ public class BellService extends Service {
                 String lessonName = SubjectCatalog.label(this, s.title);
                 String line = lessonName + " · " + AppStrings.t(this, "До конца урока ") + timeLeft(now, s.end)
                         + "\n" + AppStrings.t(this, "Далее: ") + next
-                        + (i + 1 < slots.size() ? AppStrings.t(this, " в ") + slots.get(i + 1).start.format(CLOCK) : "");
-                return appendCustomText(line + "\n" + vacationText(now));
+                        + (i + 1 < slots.size() ? AppStrings.t(this, " в ") + slots.get(i + 1).start.format(AppStrings.clockFormatter(this)) : "");
+                return line + "\n" + vacationText(now);
             }
             if (time.isBefore(s.start)) {
                 String line = AppStrings.t(this, "Перемена · до звонка ") + timeLeft(now, s.start)
                         + "\n" + AppStrings.t(this, "Следующий урок: ") + SubjectCatalog.label(this, s.title)
-                        + AppStrings.t(this, " в ") + s.start.format(CLOCK);
-                return appendCustomText(line + "\n" + vacationText(now));
+                        + AppStrings.t(this, " в ") + s.start.format(AppStrings.clockFormatter(this));
+                return line + "\n" + vacationText(now);
             }
         }
-        return appendCustomText(AppStrings.t(this, "Уроки закончились · до завтра") + "\n" + vacationText(now));
+        return AppStrings.t(this, "Уроки закончились · до завтра") + "\n" + vacationText(now);
+    }
+
+    private String notificationTitle() {
+        String custom = getSharedPreferences("settings", MODE_PRIVATE).getString("activeCustomText", "").trim();
+        return custom.isEmpty() ? AppStrings.t(this, "Расписание звонков") : custom;
     }
 
     private String vacationText(LocalDateTime now) {
@@ -88,11 +92,6 @@ public class BellService extends Service {
         boolean active = v.contains(now.toLocalDate());
         long days = active ? v.daysLeftIncludingToday(now.toLocalDate()) : v.daysUntilStart(now.toLocalDate());
         return SchoolCalendar.countdown(now.toLocalDate(), this);
-    }
-
-    private String appendCustomText(String scheduleText) {
-        String quote = getSharedPreferences("settings", MODE_PRIVATE).getString("activeCustomText", "").trim();
-        return quote.isEmpty() ? scheduleText : scheduleText + "\n\n" + quote;
     }
 
     private void chooseCustomText() {
@@ -119,8 +118,9 @@ public class BellService extends Service {
     }
 
     private String timeLeft(LocalDateTime now, LocalTime end) {
-        long seconds = Math.max(0, Duration.between(now, now.toLocalDate().atTime(end)).getSeconds());
-        return String.format(Locale.getDefault(), "%02d:%02d", seconds / 60, seconds % 60);
+        long seconds = Math.max(0, Duration.between(now.toLocalTime(), end).getSeconds());
+        if (seconds >= 3600) return String.format(Locale.ROOT, "%d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60);
+        return String.format(Locale.ROOT, "%02d:%02d", seconds / 60, seconds % 60);
     }
 
     private LocalDateTime nextEventTime() {

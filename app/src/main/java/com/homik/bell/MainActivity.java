@@ -168,7 +168,7 @@ public class MainActivity extends Activity {
         } else {
             for (Schedule.Slot slot : slots) {
                 LinearLayout item = row(); item.setGravity(Gravity.CENTER_VERTICAL); item.setPadding(0, dp(9), 0, dp(9));
-                TextView time = text(slot.start.format(DateTimeFormatter.ofPattern("HH:mm")) + "–" + slot.end.format(DateTimeFormatter.ofPattern("HH:mm")), 12, true, MUTED);
+                TextView time = text(slot.start.format(AppStrings.clockFormatter(this)) + "–" + slot.end.format(AppStrings.clockFormatter(this)), 12, true, MUTED);
                 time.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
                 item.addView(time, new LinearLayout.LayoutParams(dp(112), -2));
                 TextView subject = text(SubjectCatalog.label(this, slot.title), 14, false, INK);

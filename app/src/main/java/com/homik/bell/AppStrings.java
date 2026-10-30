@@ -3,10 +3,12 @@ package com.homik.bell;
 import android.content.Context;
 import android.os.Build;
 import android.os.LocaleList;
+import android.text.format.DateFormat;
 import android.app.LocaleManager;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.time.format.DateTimeFormatter;
 
 final class AppStrings {
     private static final Map<String, String> EN = new HashMap<>();
@@ -107,11 +109,13 @@ final class AppStrings {
         EN.put("Не найден файловый менеджер", "No file manager found"); EN.put("Не удалось прочитать файл", "Could not read file");
         EN.put("Добавь хотя бы один урок", "Add at least one lesson"); EN.put("Укажи день, время и предмет", "Enter a day, time, and subject");
         EN.put("Неизвестный день недели", "Unknown weekday"); EN.put("Проверь время урока", "Check the lesson time");
+        EN.put("Формат времени", "Time format"); EN.put("24 часа", "24-hour"); EN.put("12 часов", "12-hour");
         EN.put("укажи день, время и предмет", "enter a day, time, and subject"); EN.put("неизвестный день недели", "unknown weekday"); EN.put("проверь время урока", "check the lesson time");
         EN.put("мин", "min"); EN.put("сек", "sec");
     }
     static {
         put(UK, new String[][]{
+            {"Формат времени","Формат часу"},{"24 часа","24 години"},{"12 часов","12 годин"},
             {"Звонки","Дзвінки"},{"Школьное расписание","Шкільний розклад"},{"Настройки","Налаштування"},
             {"Оформление","Оформлення"},{"Палитра Material You подстраивается под обои на Android 12 и новее.","Палітра Material You підлаштовується під шпалери на Android 12 і новіших версіях Android."},
             {"Система","Система"},{"Светлая","Світла"},{"Тёмная","Темна"},{"Текст в уведомлении","Текст у сповіщенні"},
@@ -173,6 +177,7 @@ final class AppStrings {
         String[] ukDays={"Понеділок","Вівторок","Середа","Четвер","П’ятниця","Субота","Неділя"};
         for(int i=0;i<ruDays.length;i++) UK.put(ruDays[i], ukDays[i]);
         put(BE, new String[][]{
+            {"Формат времени","Фармат часу"},{"24 часа","24 гадзіны"},{"12 часов","12 гадзін"},
             {"Звонки","Званкі"},{"Школьное расписание","Школьны расклад"},{"Настройки","Налады"},
             {"Оформление","Афармленне"},{"Палитра Material You подстраивается под обои на Android 12 и новее.","Палітра Material You падладжваецца пад шпалеры на Android 12 і навей."},
             {"Система","Сістэма"},{"Светлая","Светлая"},{"Тёмная","Цёмная"},{"Текст в уведомлении","Тэкст у апавяшчэнні"},
@@ -240,6 +245,11 @@ final class AppStrings {
     static boolean ukrainian(Context c) { return "uk".equals(language(c)); }
     static boolean belarusian(Context c) { return "be".equals(language(c)); }
     static Locale locale(Context c) { return Locale.forLanguageTag(language(c)); }
+    static DateTimeFormatter clockFormatter(Context c) {
+        String format = c.getSharedPreferences("settings", Context.MODE_PRIVATE).getString("timeFormat", "system");
+        boolean use24Hour = "24".equals(format) || ("system".equals(format) && DateFormat.is24HourFormat(c));
+        return DateTimeFormatter.ofPattern(use24Hour ? "HH:mm" : "h:mm a", locale(c));
+    }
     static String t(Context c, String value) {
         String language = language(c);
         if ("en".equals(language)) return tEnglish(value);

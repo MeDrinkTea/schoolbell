@@ -31,6 +31,7 @@ public final class SettingsActivity extends Activity {
     private LinearLayout page;
     private EditText customText;
     private TextView customTextSwitch;
+    private TextView customTextCount;
     private int themeMode;
     private LinearLayout lessonReminderRows, breakReminderRows;
     private final List<EditText> lessonReminderInputs = new ArrayList<>(), breakReminderInputs = new ArrayList<>();
@@ -62,6 +63,7 @@ public final class SettingsActivity extends Activity {
         page.addView(top);
 
         addThemeCard();
+        addTimeFormatCard();
         addLanguageCard();
         addSubjectLanguageCard();
         addVacationModeCard();
@@ -86,6 +88,33 @@ public final class SettingsActivity extends Activity {
         TextView note = text("Даты четвертных каникул рассчитаны по типовым неделям учебного года.", 12, false, MUTED);
         LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2); noteLp.topMargin = dp(8); card.addView(note, noteLp);
         addCardToPage(card, 14);
+    }
+
+    private void addTimeFormatCard() {
+        LinearLayout card = card();
+        card.addView(text("Формат времени", 19, true));
+        LinearLayout options = row();
+        String selected = getSharedPreferences("settings", MODE_PRIVATE).getString("timeFormat", "system");
+        if (getSharedPreferences("settings", MODE_PRIVATE).getBoolean("twelveHourTime", false)) selected = "12";
+        addTimeFormatOption(options, "Как в системе", "system", selected);
+        addTimeFormatOption(options, "24 часа", "24", selected);
+        addTimeFormatOption(options, "12 часов", "12", selected);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(44));
+        lp.topMargin = dp(12); card.addView(options, lp);
+        addCardToPage(card, 14);
+    }
+
+    private void addTimeFormatOption(LinearLayout row, String label, String value, String selected) {
+        boolean active = selected.equals(value);
+        TextView option = text(label, 12, true, active ? ON_TONAL : MUTED);
+        option.setGravity(Gravity.CENTER); option.setBackground(round(active ? TONAL : BG, 13));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -1, 1);
+        if (row.getChildCount() > 0) lp.leftMargin = dp(7);
+        row.addView(option, lp);
+        option.setOnClickListener(v -> {
+            getSharedPreferences("settings", MODE_PRIVATE).edit().putString("timeFormat", value).remove("twelveHourTime").apply();
+            buildUi(); refreshNotificationText(); BellWidgetProvider.refresh(this);
+        });
     }
 
     private void addVacationModeOption(LinearLayout options, String label, String value, String selected) {
@@ -132,31 +161,24 @@ public final class SettingsActivity extends Activity {
         descriptionLp.topMargin = dp(5);
         card.addView(description, descriptionLp);
 
-        String[] codes = {"app", "ru", "uk", "be", "en"};
-        String[] labels = {"Как в приложении", "Русский", "Українська", "Беларуская", "English"};
+        String[] codes = {"app", "ru", "en", "uk", "be"};
+        String[] labels = {"Как в приложении", "Русский", "English", "Українська", "Беларуская"};
         String selected = getSharedPreferences("settings", MODE_PRIVATE).getString("subjectLanguage", "app");
-        TextView choice = text(subjectLanguageLabel(selected), 14, true, ACCENT);
-        choice.setPadding(dp(12), dp(11), dp(12), dp(11));
-        choice.setBackground(round(BG, 12));
-        LinearLayout.LayoutParams choiceLp = new LinearLayout.LayoutParams(-1, -2);
-        choiceLp.topMargin = dp(10);
-        card.addView(choice, choiceLp);
-        choice.setOnClickListener(v -> {
-            String[] visibleLabels = new String[labels.length];
-            int checked = 0;
-            for (int i = 0; i < labels.length; i++) {
-                visibleLabels[i] = AppStrings.t(this, labels[i]);
-                if (codes[i].equals(selected)) checked = i;
-            }
-            new AlertDialog.Builder(this).setTitle(AppStrings.t(this, "Язык названий предметов"))
-                    .setSingleChoiceItems(visibleLabels, checked, (dialog, which) -> {
-                        getSharedPreferences("settings", MODE_PRIVATE).edit().putString("subjectLanguage", codes[which]).apply();
-                        dialog.dismiss();
-                        BellWidgetProvider.refresh(this);
-                        refreshNotificationText();
-                        buildUi();
-                    }).setNegativeButton(AppStrings.t(this, "Отмена"), null).show();
-        });
+        for (int i = 0; i < codes.length; i++) {
+            final String code = codes[i];
+            boolean active = code.equals(selected);
+            TextView option = text(labels[i], 14, true, active ? ON_TONAL : TEXT);
+            option.setPadding(dp(12), dp(11), dp(12), dp(11));
+            option.setBackground(round(active ? TONAL : BG, 12));
+            LinearLayout.LayoutParams optionLp = new LinearLayout.LayoutParams(-1, -2);
+            optionLp.topMargin = dp(7); card.addView(option, optionLp);
+            option.setOnClickListener(v -> {
+                getSharedPreferences("settings", MODE_PRIVATE).edit().putString("subjectLanguage", code).apply();
+                BellWidgetProvider.refresh(this);
+                refreshNotificationText();
+                buildUi();
+            });
+        }
         addCardToPage(card, 14);
     }
 
@@ -305,34 +327,13 @@ public final class SettingsActivity extends Activity {
     private void addCustomTextCard() {
         LinearLayout card = card();
         card.addView(text("Текст в уведомлении", 19, true));
-        TextView description = text("Введи несколько строк или импортируй .txt. При запуске выбирается случайная строка.", 13, false, MUTED);
-        LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(-1, -2);
-        descLp.topMargin = dp(5);
-        card.addView(description, descLp);
-
-        customText = new EditText(this);
-        customText.setTextSize(14);
-        customText.setTextColor(TEXT);
-        customText.setHintTextColor(MUTED);
-        customText.setHint(AppStrings.t(this, "Каждая новая строка — отдельный вариант"));
-        customText.setGravity(Gravity.TOP | Gravity.START);
-        customText.setMinLines(4);
-        customText.setMaxLines(8);
-        customText.setPadding(dp(13), dp(11), dp(13), dp(11));
-        customText.setBackground(round(BG, 15));
-        String draft = getSharedPreferences("settings", MODE_PRIVATE).getString("customDraft",
-                getSharedPreferences("settings", MODE_PRIVATE).getString("customLines", ""));
-        customText.setText(draft);
-        customText.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                getSharedPreferences("settings", MODE_PRIVATE).edit().putString("customDraft", s.toString()).apply();
-            }
-            @Override public void afterTextChanged(Editable s) {}
-        });
-        LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(-1, -2);
-        inputLp.topMargin = dp(12);
-        card.addView(customText, inputLp);
+        customTextCount = text("", 13, false, MUTED);
+        card.addView(customTextCount);
+        TextView edit = text("Изменить строки", 14, true, ON_TONAL);
+        edit.setGravity(Gravity.CENTER); edit.setBackground(round(TONAL, 14));
+        LinearLayout.LayoutParams editLp = new LinearLayout.LayoutParams(-1, dp(44));
+        editLp.topMargin = dp(10); card.addView(edit, editLp);
+        edit.setOnClickListener(v -> openCustomTextEditor());
 
         boolean enabled = getSharedPreferences("settings", MODE_PRIVATE).getBoolean("showCustomText", false);
         customTextSwitch = text(AppStrings.t(this, "Добавлять строку к уведомлению: ") + AppStrings.t(this, enabled ? "ВКЛ" : "ВЫКЛ"), 13, true,
@@ -344,14 +345,34 @@ public final class SettingsActivity extends Activity {
         switchLp.topMargin = dp(10);
         card.addView(customTextSwitch, switchLp);
         customTextSwitch.setOnClickListener(v -> toggleCustomText());
-
-        LinearLayout buttons = row();
-        addAction(buttons, "Импорт .txt", false, this::pickTextFile);
-        addAction(buttons, "Сохранить", true, this::saveCustomText);
-        LinearLayout.LayoutParams buttonsLp = new LinearLayout.LayoutParams(-1, dp(46));
-        buttonsLp.topMargin = dp(10);
-        card.addView(buttons, buttonsLp);
+        updateCustomTextCount();
         addCardToPage(card, 14);
+    }
+
+    private void openCustomTextEditor() {
+        customText = new EditText(this);
+        customText.setTextSize(14); customText.setTextColor(TEXT); customText.setHintTextColor(MUTED);
+        customText.setHint(AppStrings.t(this, "Каждая новая строка — отдельный вариант"));
+        customText.setGravity(Gravity.TOP | Gravity.START); customText.setMinLines(5); customText.setMaxLines(12);
+        customText.setPadding(dp(13), dp(11), dp(13), dp(11)); customText.setBackground(round(BG, 15));
+        android.content.SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+        customText.setText(prefs.getString("customDraft", prefs.getString("customLines", "")));
+        customText.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { prefs.edit().putString("customDraft", s.toString()).apply(); }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+        LinearLayout editor = column(); editor.setPadding(dp(20), dp(8), dp(20), 0); editor.addView(customText);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(AppStrings.t(this, "Текст в уведомлении"))
+                .setView(editor).setNegativeButton(AppStrings.t(this, "Закрыть"), null)
+                .setNeutralButton(AppStrings.t(this, "Импорт .txt"), (d, w) -> pickTextFile())
+                .setPositiveButton(AppStrings.t(this, "Сохранить"), (d, w) -> { saveCustomText(); updateCustomTextCount(); }).create();
+        dialog.show();
+    }
+
+    private void updateCustomTextCount() {
+        int count = savedLines().size();
+        customTextCount.setText(AppStrings.t(this, "Сохранено строк: ") + count);
     }
 
     private void toggleCustomText() {
@@ -413,6 +434,7 @@ public final class SettingsActivity extends Activity {
             while ((line = reader.readLine()) != null) content.append(line).append('\n');
             customText.setText(content.toString().replace("\uFEFF", ""));
             saveCustomText();
+            updateCustomTextCount();
         } catch (IOException | NullPointerException e) {
             Toast.makeText(this, "Не удалось прочитать файл", Toast.LENGTH_SHORT).show();
         }
