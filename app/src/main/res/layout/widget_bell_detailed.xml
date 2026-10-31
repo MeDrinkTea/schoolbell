@@ -4,8 +4,8 @@
     android:background="#EDEBFF">
     <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="До звонка" android:textColor="#292644" android:textSize="15sp" android:maxLines="1" android:ellipsize="end" />
-    <Chronometer android:id="@+id/widget_countdown" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="00:00" android:textColor="#5146C8" android:textSize="34sp" android:textStyle="bold" android:format="%s" />
+    <TextView android:id="@+id/widget_countdown" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="00:00:00" android:textColor="#5146C8" android:textSize="42sp" android:textStyle="bold" />
     <TextView android:id="@+id/widget_next" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="Следующий урок" android:textColor="#49465A" android:textSize="14sp" android:maxLines="2" android:ellipsize="end" />
+        android:layout_marginTop="8dp" android:text="Следующий урок" android:textColor="#49465A" android:textSize="16sp" android:maxLines="3" android:ellipsize="end" />
 </LinearLayout>

@@ -4,6 +4,7 @@
     android:background="#EDEBFF">
     <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="До звонка" android:textColor="#292644" android:textSize="14sp" android:maxLines="1" android:ellipsize="end" />
-    <Chronometer android:id="@+id/widget_countdown" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="00:00" android:textColor="#5146C8" android:textSize="28sp" android:textStyle="bold" android:format="%s" />
+    <TextView android:id="@+id/widget_countdown" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="00:00:00" android:textColor="#5146C8" android:textSize="20sp" android:textStyle="bold"
+        android:singleLine="true" android:includeFontPadding="false" android:gravity="start|center_vertical" />
 </LinearLayout>

@@ -293,9 +293,14 @@ public class MainActivity extends Activity {
         long hours = (seconds % 86400) / 3600;
         long minutes = (seconds % 3600) / 60;
         long remainingSeconds = seconds % 60;
-        String value = days > 0
-                ? String.format(Locale.getDefault(), "%d дн %02d:%02d:%02d", days, hours, minutes, remainingSeconds)
-                : String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, remainingSeconds);
+        String value;
+        if (days > 0 && AppStrings.english(this)) {
+            value = String.format(Locale.ENGLISH, "%d %s %02d:%02d:%02d", days, days == 1 ? "day" : "days", hours, minutes, remainingSeconds);
+        } else if (days > 0) {
+            value = String.format(Locale.getDefault(), "%d %s %02d:%02d:%02d", days, AppStrings.t(this, "дн"), hours, minutes, remainingSeconds);
+        } else {
+            value = String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, remainingSeconds);
+        }
         countdownTitle.setText(AppStrings.t(this, title));
         countdownValue.setText(value);
         countdownNext.setText(next.replace("Следующий урок: ", AppStrings.t(this, "Следующий урок: "))

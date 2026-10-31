@@ -45,15 +45,22 @@ public class BellWidgetProvider extends AppWidgetProvider {
             v.setTextViewText(R.id.widget_countdown, "—");
         } else {
             long left = Math.max(0, Duration.between(now, target.at).toMillis());
-            v.setChronometer(R.id.widget_countdown, SystemClock.elapsedRealtime() + left, null, true);
-            v.setChronometerCountDown(R.id.widget_countdown, true);
-            v.setTextViewText(R.id.widget_next, target.next);
+            v.setTextViewText(R.id.widget_countdown, formatDuration(left));
+            if (detailed) v.setTextViewText(R.id.widget_next, target.next);
         }
         if (detailed && target == null) v.setTextViewText(R.id.widget_next, AppStrings.t(c, "Нажмите, чтобы создать профиль расписания"));
         Intent open = new Intent(c, MainActivity.class);
         PendingIntent pi = PendingIntent.getActivity(c, detailed ? 702 : 701, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         v.setOnClickPendingIntent(R.id.widget_root, pi);
         return v;
+    }
+
+    private static String formatDuration(long millis) {
+        long total = Math.max(0, millis / 1000);
+        long hours = total / 3600;
+        long minutes = (total % 3600) / 60;
+        long seconds = total % 60;
+        return String.format(Locale.ROOT, "%02d:%02d:%02d", hours, minutes, seconds);
     }
 
     private static Target findTarget(Context c, LocalDateTime now) {
