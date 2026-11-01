@@ -3,6 +3,7 @@ package com.homik.bell;
 import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.AlertDialog;
+import android.app.TimePickerDialog;
 import android.content.Intent;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -11,10 +12,14 @@ import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.widget.Button;
+import android.widget.Spinner;
+import android.widget.ArrayAdapter;
 import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -23,12 +28,16 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public final class SettingsActivity extends Activity {
     private static final int REQUEST_IMPORT_TEXT = 31;
     private int BG, SURFACE, TEXT, MUTED, ACCENT, DIVIDER, TONAL, ON_TONAL;
     private LinearLayout page;
+    private ScrollView settingsScroll;
+    private int restoredScrollY;
     private EditText customText;
     private TextView customTextSwitch;
     private TextView customTextCount;
@@ -38,12 +47,20 @@ public final class SettingsActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        if (state != null) restoredScrollY = state.getInt("settingsScrollY", 0);
+        else if (getIntent().getBooleanExtra("openSchedules", false)) restoredScrollY = Integer.MAX_VALUE;
         themeMode = AppPalette.themeMode(this);
         applyPalette();
         buildUi();
     }
 
+    @Override protected void onSaveInstanceState(Bundle outState) {
+        if (settingsScroll != null) outState.putInt("settingsScrollY", settingsScroll.getScrollY());
+        super.onSaveInstanceState(outState);
+    }
+
     private void buildUi() {
+        int scrollY = settingsScroll == null ? restoredScrollY : settingsScroll.getScrollY();
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         page = new LinearLayout(this);
@@ -66,13 +83,21 @@ public final class SettingsActivity extends Activity {
         addTimeFormatCard();
         addLanguageCard();
         addSubjectLanguageCard();
+        addBlockOrderCard();
+        addCustomTextCard();
         addVacationModeCard();
         addReminderCard();
-        addCustomTextCard();
         addSchedulesCard();
 
         scroll.addView(page);
+        settingsScroll = scroll;
         setContentView(scroll);
+        final int targetScrollY = scrollY;
+        scroll.post(() -> {
+            if (targetScrollY == Integer.MAX_VALUE && page.getChildCount() > 0)
+                scroll.scrollTo(0, page.getChildAt(page.getChildCount() - 1).getTop());
+            else scroll.scrollTo(0, targetScrollY);
+        });
     }
 
     private void addVacationModeCard() {
@@ -88,6 +113,69 @@ public final class SettingsActivity extends Activity {
         TextView note = text("Даты четвертных каникул рассчитаны по типовым неделям учебного года.", 12, false, MUTED);
         LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, -2); noteLp.topMargin = dp(8); card.addView(note, noteLp);
         addCardToPage(card, 14);
+    }
+
+    private void addBlockOrderCard() {
+        LinearLayout card = card();
+        card.addView(text("Порядок блоков", 19, true));
+        card.addView(text("Меняй порядок стрелками. Он применяется к уведомлению и главному экрану.", 13, false, MUTED));
+        card.addView(text("В уведомлении", 15, true));
+        addOrderList(card, "notificationBlockOrder", new String[]{"status", "next", "holiday"},
+                new String[]{"Текущий урок или перемена", "Следующий урок", "Каникулы"});
+        card.addView(text("На главном экране", 15, true));
+        addOrderList(card, "homeBlockOrder", new String[]{"countdown", "vacation", "notification", "schedule"},
+                new String[]{"Таймер", "Каникулы", "Уведомление", "Расписание"});
+        addCardToPage(card, 14);
+    }
+
+    private void addOrderList(LinearLayout card, String key, String[] defaults, String[] labels) {
+        String saved = getSharedPreferences("settings", MODE_PRIVATE).getString(key, String.join(",", defaults));
+        List<String> parsed = new ArrayList<>(java.util.Arrays.asList(saved.split(",")));
+        if (parsed.size() != defaults.length || !parsed.containsAll(java.util.Arrays.asList(defaults))) parsed = new ArrayList<>(java.util.Arrays.asList(defaults));
+        final List<String> order = parsed;
+        for (int i = 0; i < order.size(); i++) {
+            final int index = i;
+            LinearLayout line = row();
+            TextView name = text(labels[java.util.Arrays.asList(defaults).indexOf(order.get(i))], 13, true);
+            line.addView(name, new LinearLayout.LayoutParams(0, dp(42), 1));
+            addOrderArrow(line, "↑", index > 0, () -> swapOrder(key, order, index, index - 1));
+            addOrderArrow(line, "↓", index + 1 < order.size(), () -> swapOrder(key, order, index, index + 1));
+            String blockId = order.get(i);
+            Set<String> hidden = getSharedPreferences("settings", MODE_PRIVATE)
+                    .getStringSet("hidden_" + key, java.util.Collections.emptySet());
+            boolean isHidden = hidden.contains(blockId);
+            ImageView visibility = new ImageView(this);
+            visibility.setImageResource(isHidden ? R.drawable.ic_visibility_off : R.drawable.ic_visibility);
+            visibility.setColorFilter(isHidden ? MUTED : ACCENT);
+            visibility.setPadding(dp(9), dp(9), dp(9), dp(9));
+            visibility.setBackground(round(BG, 10));
+            visibility.setContentDescription(AppStrings.t(this, isHidden ? "Показать блок" : "Скрыть блок"));
+            LinearLayout.LayoutParams visibilityLp = new LinearLayout.LayoutParams(dp(38), dp(38));
+            visibilityLp.leftMargin = dp(5); line.addView(visibility, visibilityLp);
+            visibility.setOnClickListener(v -> toggleBlockVisibility(key, blockId));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(44)); lp.topMargin = dp(4); card.addView(line, lp);
+        }
+    }
+
+    private void toggleBlockVisibility(String key, String blockId) {
+        android.content.SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+        Set<String> hidden = new HashSet<>(prefs.getStringSet("hidden_" + key, java.util.Collections.emptySet()));
+        if (!hidden.add(blockId)) hidden.remove(blockId);
+        prefs.edit().putStringSet("hidden_" + key, hidden).apply();
+        buildUi(); refreshNotificationText(); BellWidgetProvider.refresh(this);
+    }
+
+    private void addOrderArrow(LinearLayout row, String glyph, boolean enabled, Runnable action) {
+        TextView button = text(glyph, 18, true, enabled ? ACCENT : MUTED);
+        button.setGravity(Gravity.CENTER); button.setBackground(round(BG, 10));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(42), dp(38)); lp.leftMargin = dp(5); row.addView(button, lp);
+        button.setEnabled(enabled); button.setOnClickListener(v -> action.run());
+    }
+
+    private void swapOrder(String key, List<String> order, int from, int to) {
+        java.util.Collections.swap(order, from, to);
+        getSharedPreferences("settings", MODE_PRIVATE).edit().putString(key, String.join(",", order)).apply();
+        buildUi(); refreshNotificationText(); BellWidgetProvider.refresh(this);
     }
 
     private void addTimeFormatCard() {
@@ -491,6 +579,10 @@ public final class SettingsActivity extends Activity {
         addLp.topMargin = dp(12);
         card.addView(add, addLp);
         add.setOnClickListener(v -> showProfileEditor(null));
+        TextView timed = text("Создать по дням и времени", 14, true, ACCENT);
+        timed.setGravity(Gravity.CENTER); timed.setBackground(round(BG, 15));
+        LinearLayout.LayoutParams timedLp = new LinearLayout.LayoutParams(-1, dp(46)); timedLp.topMargin = dp(7); card.addView(timed, timedLp);
+        timed.setOnClickListener(v -> showScheduleBuilder(null, "", ""));
         addCardToPage(card, 14);
     }
 
@@ -516,6 +608,9 @@ public final class SettingsActivity extends Activity {
         source.setPadding(dp(12), dp(10), dp(12), dp(10)); source.setBackground(round(BG, 12));
         android.content.SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
         source.setText(editing ? prefs.getString("scheduleProfile_" + profile.id + "_data", "") : "");
+        TextView builder = text("Открыть конструктор с таймпикером", 13, true, ACCENT);
+        builder.setGravity(Gravity.CENTER); builder.setBackground(round(BG, 12));
+        LinearLayout.LayoutParams builderLp = new LinearLayout.LayoutParams(-1, dp(42)); builderLp.topMargin = dp(8); form.addView(builder, builderLp);
         LinearLayout.LayoutParams sourceLp = new LinearLayout.LayoutParams(-1, -2);
         sourceLp.topMargin = dp(8);
         form.addView(source, sourceLp);
@@ -524,6 +619,7 @@ public final class SettingsActivity extends Activity {
                 .setTitle(AppStrings.t(this, editing ? "Изменить расписание" : "Новое расписание"))
                 .setView(form).setNegativeButton(AppStrings.t(this, "Отмена"), null)
                 .setPositiveButton(AppStrings.t(this, "Сохранить"), null).create();
+        builder.setOnClickListener(v -> { dialog.dismiss(); showScheduleBuilder(profile, name.getText().toString(), source.getText().toString()); });
         dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String profileName = name.getText().toString().trim();
             if (profileName.isEmpty()) {
@@ -555,6 +651,48 @@ public final class SettingsActivity extends Activity {
                     Schedule.deleteProfile(this, profile.id);
                     buildUi();
                 }).show();
+    }
+
+    private static final class TimedLesson {
+        int sh=8, sm=0, eh=8, em=40; String subject="";
+    }
+
+    private void showScheduleBuilder(Schedule.Profile profile, String initialName, String initialSource) {
+        String[] dayCodes={"Пн","Вт","Ср","Чт","Пт","Сб","Вс"};
+        java.util.List<TimedLesson>[] days=new java.util.ArrayList[7];
+        for(int i=0;i<7;i++) days[i]=new java.util.ArrayList<>();
+        try {
+            for(java.util.Map.Entry<java.time.DayOfWeek, java.util.List<Schedule.Slot>> e:Schedule.parseCustomSchedule(initialSource).entrySet()) {
+                int d=e.getKey().getValue()-1;
+                for(Schedule.Slot slot:e.getValue()) { TimedLesson x=new TimedLesson(); x.sh=slot.start.getHour();x.sm=slot.start.getMinute();x.eh=slot.end.getHour();x.em=slot.end.getMinute();x.subject=slot.title;days[d].add(x); }
+            }
+        } catch(Exception ignored) {}
+        EditText name=new EditText(this); name.setSingleLine(true);name.setTextColor(TEXT);name.setHintTextColor(MUTED);name.setHint(AppStrings.t(this,"Название расписания"));name.setText(initialName);name.setPadding(dp(12),dp(8),dp(12),dp(8));name.setBackground(round(BG,12));
+        Spinner dayPicker=new Spinner(this); dayPicker.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, dayCodes));
+        LinearLayout rows=column(); TextView add=text("＋  Добавить урок",14,true,ACCENT);add.setGravity(Gravity.CENTER);add.setBackground(round(BG,12));
+        java.util.function.IntConsumer renderDay=new java.util.function.IntConsumer(){ public void accept(int index){ rows.removeAllViews(); for(TimedLesson x:days[index]) addTimedLessonRow(rows,x); } };
+        dayPicker.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){} public void onItemSelected(android.widget.AdapterView<?> p,View v,int pos,long id){renderDay.accept(pos);}});
+        add.setOnClickListener(v->{TimedLesson x=new TimedLesson();days[dayPicker.getSelectedItemPosition()].add(x);renderDay.accept(dayPicker.getSelectedItemPosition());});
+        TextView copy=text("Скопировать этот день на все",13,true,ACCENT);copy.setGravity(Gravity.CENTER);copy.setBackground(round(BG,12));
+        copy.setOnClickListener(v->{int source=dayPicker.getSelectedItemPosition();java.util.List<TimedLesson> template=days[source];for(int d=0;d<7;d++){if(d==source)continue;int count=Math.min(days[d].size(),template.size());for(int i=0;i<count;i++){TimedLesson from=template.get(i),to=days[d].get(i);to.sh=from.sh;to.sm=from.sm;to.eh=from.eh;to.em=from.em;}}renderDay.accept(source);Toast.makeText(this,AppStrings.t(this,"Время звонков скопировано; предметы не изменены"),Toast.LENGTH_SHORT).show();});
+        LinearLayout body=column();body.setPadding(dp(18),dp(8),dp(18),0);body.addView(name);body.addView(dayPicker);body.addView(rows);LinearLayout.LayoutParams addLp=new LinearLayout.LayoutParams(-1,dp(44));addLp.topMargin=dp(8);body.addView(add,addLp);LinearLayout.LayoutParams copyLp=new LinearLayout.LayoutParams(-1,dp(42));copyLp.topMargin=dp(6);body.addView(copy,copyLp);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle(AppStrings.t(this,"Создать по дням и времени")).setView(body).setNegativeButton(AppStrings.t(this,"Отмена"),null).setPositiveButton(AppStrings.t(this,"Сохранить"),null).create();
+        dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String profileName=name.getText().toString().trim();if(profileName.isEmpty()){name.setError(AppStrings.t(this,"Укажи название"));return;}StringBuilder src=new StringBuilder();for(int i=0;i<7;i++)for(TimedLesson x:days[i])if(!x.subject.trim().isEmpty())src.append(dayCodes[i]).append(' ').append(String.format(java.util.Locale.ROOT,"%02d:%02d-%02d:%02d",x.sh,x.sm,x.eh,x.em)).append(' ').append(x.subject.trim()).append('\n');try{Schedule.saveProfile(this,profile==null?null:profile.id,profileName,src.toString());dialog.dismiss();buildUi();}catch(Exception ex){Toast.makeText(this,AppStrings.t(this,"Проверь время урока"),Toast.LENGTH_LONG).show();}}));
+        dialog.show();
+    }
+
+    private void addTimedLessonRow(LinearLayout rows, TimedLesson lesson) {
+        LinearLayout line=column();line.setPadding(dp(8),dp(6),dp(8),dp(6));line.setBackground(round(BG,12));
+        LinearLayout times=row(); TextView start=text(String.format(java.util.Locale.ROOT,"%02d:%02d",lesson.sh,lesson.sm),14,true,ACCENT);TextView end=text(String.format(java.util.Locale.ROOT,"%02d:%02d",lesson.eh,lesson.em),14,true,ACCENT);
+        times.addView(start,new LinearLayout.LayoutParams(0,dp(38),1));TextView dash=text("–",14,true);times.addView(dash);times.addView(end,new LinearLayout.LayoutParams(0,dp(38),1));TextView del=text("×",20,true,ACCENT);times.addView(del,new LinearLayout.LayoutParams(dp(36),dp(38)));
+        start.setOnClickListener(v->pickTime(lesson,true,start));end.setOnClickListener(v->pickTime(lesson,false,end));del.setOnClickListener(v->rows.removeView(line));
+        EditText subject=new EditText(this);subject.setSingleLine(true);subject.setTextSize(14);subject.setTextColor(TEXT);subject.setHintTextColor(MUTED);subject.setHint(AppStrings.t(this,"Предмет"));subject.setText(lesson.subject);subject.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int before,int count){lesson.subject=s.toString();}public void afterTextChanged(Editable e){}});
+        line.addView(times);line.addView(subject);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(5);rows.addView(line,lp);
+    }
+
+    private void pickTime(TimedLesson lesson, boolean start, TextView label) {
+        int h=start?lesson.sh:lesson.eh,m=start?lesson.sm:lesson.em;
+        new TimePickerDialog(this,(picker,hour,minute)->{if(start){lesson.sh=hour;lesson.sm=minute;}else{lesson.eh=hour;lesson.em=minute;}label.setText(String.format(java.util.Locale.ROOT,"%02d:%02d",hour,minute));},h,m,true).show();
     }
 
     private void addAction(LinearLayout row, String label, boolean primary, Runnable action) {

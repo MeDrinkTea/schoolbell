@@ -20,6 +20,7 @@ import java.util.Locale;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Random;
+import java.util.Set;
 
 public class BellService extends Service {
     public static final String ACTION_REFRESH_TEXT = "com.homik.bell.REFRESH_TEXT";
@@ -49,7 +50,7 @@ public class BellService extends Service {
         }
         getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean("enabled", true).apply();
         createChannel();
-        chooseCustomText();
+        if (intent == null || !ACTION_REFRESH_TEXT.equals(intent.getAction())) chooseCustomText();
         handler.removeCallbacks(updater);
         startForeground(NOTIFICATION_ID, makeNotification(notificationTitle(), statusText()));
         BellWidgetProvider.refresh(this);
@@ -60,26 +61,40 @@ public class BellService extends Service {
     private String statusText() {
         LocalDateTime now = LocalDateTime.now();
         List<Schedule.Slot> slots = Schedule.forDay(now.getDayOfWeek(), this);
-        if (slots.isEmpty()) return AppStrings.t(this, "Сегодня занятий по расписанию нет") + "\n" + vacationText(now);
+        if (slots.isEmpty()) return orderNotificationBlocks(AppStrings.t(this, "Сегодня занятий по расписанию нет"), "", vacationText(now));
         LocalTime time = now.toLocalTime();
         for (int i = 0; i < slots.size(); i++) {
             Schedule.Slot s = slots.get(i);
             if (!time.isBefore(s.start) && time.isBefore(s.end)) {
                 String next = i + 1 < slots.size() ? SubjectCatalog.label(this, slots.get(i + 1).title) : AppStrings.t(this, "занятий больше нет");
                 String lessonName = SubjectCatalog.label(this, s.title);
-                String line = lessonName + " · " + AppStrings.t(this, "До конца урока ") + timeLeft(now, s.end)
-                        + "\n" + AppStrings.t(this, "Далее: ") + next
+                String nextLine = AppStrings.t(this, "Далее: ") + next
                         + (i + 1 < slots.size() ? AppStrings.t(this, " в ") + slots.get(i + 1).start.format(AppStrings.clockFormatter(this)) : "");
-                return line + "\n" + vacationText(now);
+                return orderNotificationBlocks(lessonName + " · " + AppStrings.t(this, "До конца урока ") + timeLeft(now, s.end), nextLine, vacationText(now));
             }
             if (time.isBefore(s.start)) {
-                String line = AppStrings.t(this, "Перемена · до звонка ") + timeLeft(now, s.start)
-                        + "\n" + AppStrings.t(this, "Следующий урок: ") + SubjectCatalog.label(this, s.title)
+                String nextLine = AppStrings.t(this, "Следующий урок: ") + SubjectCatalog.label(this, s.title)
                         + AppStrings.t(this, " в ") + s.start.format(AppStrings.clockFormatter(this));
-                return line + "\n" + vacationText(now);
+                return orderNotificationBlocks(AppStrings.t(this, "Перемена · до звонка ") + timeLeft(now, s.start), nextLine, vacationText(now));
             }
         }
-        return AppStrings.t(this, "Уроки закончились · до завтра") + "\n" + vacationText(now);
+        return orderNotificationBlocks(AppStrings.t(this, "Уроки закончились · до завтра"), "", vacationText(now));
+    }
+
+    private String orderNotificationBlocks(String status, String next, String holiday) {
+        java.util.Map<String, String> blocks = new java.util.HashMap<>();
+        blocks.put("status", status); blocks.put("next", next); blocks.put("holiday", holiday);
+        android.content.SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+        String order = prefs.getString("notificationBlockOrder", "status,next,holiday");
+        Set<String> hidden = prefs.getStringSet("hidden_notificationBlockOrder", java.util.Collections.emptySet());
+        List<String> lines = new ArrayList<>();
+        for (String key : order.split(",")) {
+            String value = blocks.remove(key);
+            if (value != null && !value.isEmpty() && !hidden.contains(key)) lines.add(value);
+        }
+        for (java.util.Map.Entry<String, String> entry : blocks.entrySet())
+            if (!entry.getValue().isEmpty() && !hidden.contains(entry.getKey())) lines.add(entry.getValue());
+        return String.join("\n", lines);
     }
 
     private String notificationTitle() {

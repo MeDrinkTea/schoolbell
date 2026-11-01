@@ -5,12 +5,15 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
@@ -24,6 +27,7 @@ import java.time.LocalDateTime;
 import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.Set;
 
 public class MainActivity extends Activity {
     private int INK, MUTED, PURPLE, BG, SURFACE, DIVIDER, BADGE_BG, BADGE_FG;
@@ -36,6 +40,7 @@ public class MainActivity extends Activity {
     private String lastLanguage;
     private String lastSubjectLanguage;
     private String lastVacationMode;
+    private String lastBlockVisibility;
     private int lastScheduleRevision;
     private final Handler clockHandler = new Handler(Looper.getMainLooper());
     private final Runnable clockTicker = new Runnable() {
@@ -54,12 +59,69 @@ public class MainActivity extends Activity {
         lastSubjectLanguage = getSharedPreferences("settings", MODE_PRIVATE).getString("subjectLanguage", "app");
         lastVacationMode = getSharedPreferences("settings", MODE_PRIVATE).getString("vacationMode", "trimesters");
         lastScheduleRevision = Schedule.revision(this);
+        lastBlockVisibility = blockVisibilitySignature();
         applyPalette();
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 8);
         buildUi();
+        if (state == null) {
+            android.content.SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+            boolean firstScheduleTip = !prefs.getBoolean("firstScheduleTipShown", false);
+            boolean firstBatteryTip = !prefs.getBoolean("firstBatteryTipShown", false);
+            if (firstScheduleTip) {
+                prefs.edit().putBoolean("firstScheduleTipShown", true).apply();
+                new Handler(Looper.getMainLooper()).post(() -> showFirstScheduleTip(firstBatteryTip));
+            } else if (firstBatteryTip) {
+                new Handler(Looper.getMainLooper()).post(this::showFirstBatteryTip);
+            }
+        }
         if (state == null && getSharedPreferences("settings", MODE_PRIVATE).getBoolean("enabled", false))
             refreshNotificationText();
+    }
+
+    private void showFirstScheduleTip(boolean includeBatteryTip) {
+        if (isFinishing() || isDestroyed()) return;
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                .setTitle(AppStrings.t(this, "Добавь своё расписание"))
+                .setMessage(AppStrings.t(this, includeBatteryTip
+                        ? "Заполни расписание в настройках: открой «Мои расписания» и добавь свой профиль. Чтобы уведомление обновлялось в фоне, разреши работу без ограничений батареи."
+                        : "Заполни расписание в настройках: открой «Мои расписания» и добавь свой профиль."))
+                .setPositiveButton(AppStrings.t(this, "Заполнить расписание"), (dialog, which) -> {
+                    Intent intent = new Intent(this, SettingsActivity.class).putExtra("openSchedules", true);
+                    startActivity(intent);
+                })
+                .setNegativeButton(AppStrings.t(this, "Позже"), null);
+        if (includeBatteryTip) {
+            getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean("firstBatteryTipShown", true).apply();
+            builder.setNeutralButton(AppStrings.t(this, "Настройки батареи"), (dialog, which) -> openBatterySettings());
+        }
+        builder.show();
+    }
+
+    private void showFirstBatteryTip() {
+        if (isFinishing() || isDestroyed()) return;
+        getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean("firstBatteryTipShown", true).apply();
+        if (Build.VERSION.SDK_INT >= 23) {
+            PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+            if (power != null && power.isIgnoringBatteryOptimizations(getPackageName())) return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(AppStrings.t(this, "Фоновая работа уведомления"))
+                .setMessage(AppStrings.t(this, "Чтобы уведомление обновлялось в фоне, разреши приложению работу без ограничений батареи."))
+                .setPositiveButton(AppStrings.t(this, "Настройки батареи"), (dialog, which) -> openBatterySettings())
+                .setNegativeButton(AppStrings.t(this, "Позже"), null)
+                .show();
+    }
+
+    private void openBatterySettings() {
+        if (Build.VERSION.SDK_INT < 23) return;
+        Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:" + getPackageName()));
+        try {
+            startActivity(intent);
+        } catch (Exception ignored) {
+            startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+        }
     }
 
     @Override protected void onResume() {
@@ -74,13 +136,16 @@ public class MainActivity extends Activity {
         boolean languageChanged = !language.equals(lastLanguage);
         boolean subjectLanguageChanged = !subjectLanguage.equals(lastSubjectLanguage);
         boolean vacationModeChanged = !vacationMode.equals(lastVacationMode);
-        if (darkTheme != palette.dark || scheduleChanged || languageChanged || vacationModeChanged || subjectLanguageChanged) {
+        boolean blockVisibilityChanged = !blockVisibilitySignature().equals(lastBlockVisibility);
+        if (darkTheme != palette.dark || scheduleChanged || languageChanged || vacationModeChanged || subjectLanguageChanged || blockVisibilityChanged) {
             lastProfileId = profileId; lastScheduleRevision = revision;
             lastLanguage = language; lastVacationMode = vacationMode;
             lastSubjectLanguage = subjectLanguage;
+            lastBlockVisibility = blockVisibilitySignature();
             applyPalette(); buildUi();
         }
-        if (scheduleChanged || vacationModeChanged || subjectLanguageChanged) refreshNotificationText();
+        if (scheduleChanged || vacationModeChanged || subjectLanguageChanged || blockVisibilityChanged) refreshNotificationText();
+        if (blockVisibilityChanged) BellWidgetProvider.refresh(this);
         refreshStatus(); clockHandler.removeCallbacks(clockTicker); clockTicker.run();
     }
     @Override protected void onPause() { clockHandler.removeCallbacks(clockTicker); super.onPause(); }
@@ -131,8 +196,6 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams actionLp = new LinearLayout.LayoutParams(-1, dp(48)); actionLp.topMargin = dp(15); control.addView(actionButton, actionLp);
         TextView hint = text("Покажет, сколько осталось до звонка и какой урок будет дальше.", 13, false, MUTED);
         hint.setPadding(0, dp(11), 0, 0); control.addView(hint);
-        TextView backgroundHint = text("Для обновления в фоне разреши приложению работу без ограничений батареи.", 12, false, MUTED);
-        backgroundHint.setPadding(0, dp(7), 0, 0); control.addView(backgroundHint);
         LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2); cardLp.bottomMargin = dp(22); page.addView(control, cardLp);
 
         LinearLayout sectionTitle = row();
@@ -150,8 +213,42 @@ public class MainActivity extends Activity {
             DayOfWeek day = DayOfWeek.of(i == 6 ? 7 : i + 1);
             addDayCard(day, DAYS[i], day == today.getDayOfWeek());
         }
+        applyHomeBlockOrder();
         scroll.addView(page);
         setContentView(scroll);
+    }
+
+    private void applyHomeBlockOrder() {
+        if (page.getChildCount() < 7) return;
+        View brand = page.getChildAt(0), date = page.getChildAt(1);
+        View countdown = page.getChildAt(2), vacation = page.getChildAt(3), notification = page.getChildAt(4);
+        LinearLayout schedule = column();
+        while (page.getChildCount() > 5) {
+            View child = page.getChildAt(5); page.removeViewAt(5); schedule.addView(child);
+        }
+        java.util.Map<String, View> blocks = new java.util.HashMap<>();
+        blocks.put("countdown", countdown); blocks.put("vacation", vacation);
+        blocks.put("notification", notification); blocks.put("schedule", schedule);
+        String saved = getSharedPreferences("settings", MODE_PRIVATE).getString("homeBlockOrder", "countdown,vacation,notification,schedule");
+        page.removeAllViews(); page.addView(brand); page.addView(date);
+        for (String key : saved.split(",")) {
+            View block = blocks.remove(key);
+            if (block != null && !isBlockHidden("homeBlockOrder", key)) page.addView(block);
+        }
+        for (java.util.Map.Entry<String, View> entry : blocks.entrySet())
+            if (!isBlockHidden("homeBlockOrder", entry.getKey())) page.addView(entry.getValue());
+    }
+
+    private boolean isBlockHidden(String orderKey, String blockId) {
+        Set<String> hidden = getSharedPreferences("settings", MODE_PRIVATE)
+                .getStringSet("hidden_" + orderKey, java.util.Collections.emptySet());
+        return hidden.contains(blockId);
+    }
+
+    private String blockVisibilitySignature() {
+        android.content.SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+        return new java.util.TreeSet<>(prefs.getStringSet("hidden_homeBlockOrder", java.util.Collections.emptySet()))
+                + "|" + new java.util.TreeSet<>(prefs.getStringSet("hidden_notificationBlockOrder", java.util.Collections.emptySet()));
     }
 
     private void addDayCard(DayOfWeek day, String title, boolean today) {
@@ -236,22 +333,33 @@ public class MainActivity extends Activity {
 
     private void showSchedulePicker() {
         java.util.List<Schedule.Profile> profiles = Schedule.profiles(this);
-        String[] names = new String[profiles.size()];
-        int selected = 0;
         String selectedId = Schedule.selectedProfileId(this);
-        for (int i = 0; i < profiles.size(); i++) {
-            names[i] = AppStrings.t(this, profiles.get(i).name);
-            if (profiles.get(i).id.equals(selectedId)) selected = i;
+        LinearLayout choices = column();
+        choices.setPadding(dp(20), dp(8), dp(20), dp(4));
+        for (Schedule.Profile profile : profiles) {
+            boolean selected = profile.id.equals(selectedId);
+            TextView option = text(AppStrings.t(this, profile.name), 15, true, selected ? BADGE_FG : INK);
+            option.setGravity(Gravity.CENTER_VERTICAL);
+            option.setPadding(dp(16), dp(14), dp(16), dp(14));
+            option.setBackground(round(selected ? BADGE_BG : BG, 15));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+            lp.topMargin = dp(6); choices.addView(option, lp);
         }
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(AppStrings.t(this, "Выбрать расписание"))
-                .setSingleChoiceItems(names, selected, (dialog, which) -> {
-                    Schedule.selectProfile(this, profiles.get(which).id);
-                    lastProfileId = Schedule.selectedProfileId(this);
-                    buildUi(); refreshStatus(); refreshNotificationText(); dialog.dismiss();
-                })
+                .setView(choices)
                 .setNegativeButton(AppStrings.t(this, "Закрыть"), null)
-                .show();
+                .create();
+        for (int i = 0; i < choices.getChildCount(); i++) {
+            View option = choices.getChildAt(i);
+            option.setOnClickListener(v -> {
+                Schedule.Profile profile = profiles.get(choices.indexOfChild(v));
+                Schedule.selectProfile(this, profile.id);
+                lastProfileId = Schedule.selectedProfileId(this);
+                dialog.dismiss(); buildUi(); refreshStatus(); refreshNotificationText();
+            });
+        }
+        dialog.show();
     }
 
     private void updateCountdown() {
